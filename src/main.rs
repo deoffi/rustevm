@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::fmt;
 
 mod context;
+mod memory;
 mod opcode;
 mod signed;
 
@@ -231,7 +232,7 @@ fn execute(
     let op = next_op(&ms, i);
 
     // update stack
-    let (result_stack, ac, rc) = apply_op(ms.stack.clone(), i, &ms, op);
+    let (result_stack, ac, rc) = apply_op(ms.stack.clone(), i, &mut ms, op);
     let delta = ac - rc;
     let prev_size = U256::from_dec_str(&format!("{}", ms.stack.len())).unwrap();
     let new_size = U256::from_dec_str(&format!("{}", result_stack.len())).unwrap();

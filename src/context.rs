@@ -1,3 +1,4 @@
+use crate::memory::Memory;
 use primitive_types::U256;
 
 pub struct Context {
@@ -128,8 +129,9 @@ pub struct MachineState {
     pub gas_avail: U256,
     // program counter
     pub pc: U256,
-    // series of zeroes in size 2^256. memory
-    pub m: U256,
+    // series of zeroes in size 2^256
+    // pub m: U256,
+    pub m: Memory,
     // stack contents
     pub stack: Vec<U256>,
     // return data buffer
@@ -141,7 +143,7 @@ impl Default for MachineState {
         Self {
             gas_avail: U256::zero(),
             pc: U256::zero(),
-            m: U256::zero(),
+            m: Memory::default(),
             stack: vec![],
             returndata: String::default(),
         }

@@ -203,7 +203,7 @@ impl From<OpCode> for u8 {
 pub fn apply_op(
     mut stack: Vec<U256>,
     i: &I,
-    ms: &MachineState,
+    ms: &mut MachineState,
     op: OpCode,
 ) -> (Vec<U256>, U256, U256) {
     match op {
@@ -282,8 +282,6 @@ pub fn apply_op(
             if b == U256::zero() {
                 stack.push(U256::zero());
             } else {
-                //let (_, d) = a.div_mod(b);
-                //stack.push(d);
                 stack.push(a % b);
             }
 
@@ -312,7 +310,7 @@ pub fn apply_op(
                 stack.push(U256::zero());
             } else {
                 let (d, _) = a.overflowing_add(b);
-                let (_, e) = a.div_mod(d);
+                let (_, e) = d.div_mod(c);
                 stack.push(e);
             }
 
@@ -328,7 +326,7 @@ pub fn apply_op(
                 stack.push(U256::zero());
             } else {
                 let (d, _) = a.overflowing_mul(b);
-                let (_, e) = a.div_mod(d);
+                let (_, e) = d.div_mod(c);
                 stack.push(e);
             }
 
@@ -527,10 +525,6 @@ pub fn apply_op(
             let a = stack.pop().unwrap();
             let b = stack.pop().unwrap();
 
-            //let (c, _) = U256::from(2).overflowing_mul(a);
-            //let (d, _) = b.overflowing_mul(c);
-            //let (_, e) = d.div_mod(U256::MAX);
-            //stack.push(e);
             stack.push(b << a);
 
             let rc = U256::from(2);
@@ -541,9 +535,6 @@ pub fn apply_op(
             let a = stack.pop().unwrap();
             let b = stack.pop().unwrap();
 
-            //let (c, _) = U256::from(2).overflowing_mul(a);
-            //let (d, _) = b.div_mod(c);
-            //stack.push(d);
             stack.push(b >> a);
 
             let rc = U256::from(2);
@@ -551,13 +542,8 @@ pub fn apply_op(
             (stack, ac, rc)
         }
         OpCode::SAR => {
-            // XXX:
             let a: I256 = stack.pop().unwrap().into();
             let b = stack.pop().unwrap();
-
-            //let (c, _) = U256::from(2).overflowing_mul(a);
-            //let (d, _) = b.div_mod(c);
-            //stack.push(d);
 
             if a.sign() == -1 {
                 // fill the newly created 0s on the left
@@ -654,9 +640,71 @@ pub fn apply_op(
             ret = ret >> 8;
 
             stack.push(ret);
+        }
+        OpCode::MLOAD => {
+            // in yellowpaper, u'[0] = um[u[0] ... u[0]+31]
+            let a = stack.pop().unwrap();
+
+            // returns Vec<u8> of size 32
+            let data = ms.m.load(a.low_u32() as usize, 32);
+
+            // this will fit into U256
+            // but would the order by big-endian or little-endian?
+            // e.g. given a vector of [0xff, 0xf1, 0x12, ... 0x04, 0x22, 0x01]
+            // should U256 be         0xff0xf10x12...0x040x220x01
+            //              or        0x010x220x04...0x120xf10xff
+            //
+            // big-endian representation of the slice
+            let mut b = U256::zero();
+            for abyte in data {
+                b = b | abyte.into();
+                b = b << 8;
+            }
+            // moved 1 too many time
+            b = b >> 8;
+
+            stack.push(b);
 
             let rc = U256::from(1);
             let ac = U256::from(1);
+            (stack, ac, rc)
+        }
+        OpCode::MSTORE => {
+            // XXX: confusion on order
+            // in stack: [b, a]
+            // in yellowpaper, memory[b] = a
+            // but we favor memory[a] = b just b/c it read easier?
+            // do  memory[a] = b and see what happens
+            let a = stack.pop().unwrap();
+            let mut b = stack.pop().unwrap();
+
+            // U256 b should be converted into Vec<u8>. Representation is big-endian
+            // Vec<u8> will have a size of 32
+            let mut data: Vec<u8> = vec![0; 32];
+            let last_index = data.len() - 1;
+            let mask: u8 = 0xff;
+            for i in 0..32 {
+                // take the last 8 bits from `b`
+                let value = (b & mask.into()).low_u32() as u8;
+                b = b >> 8;
+                data[last_index - i] = value;
+            }
+            ms.m.store(a.low_u32() as usize, data);
+
+            let rc = U256::from(2);
+            let ac = U256::from(0);
+            (stack, ac, rc)
+        }
+
+        OpCode::MSTORE8 => {
+            let a = stack.pop().unwrap();
+            let b = stack.pop().unwrap();
+
+            let data = vec![b.low_u32() as u8];
+            ms.m.store(a.low_u32() as usize, data);
+
+            let rc = U256::from(2);
+            let ac = U256::from(0);
             (stack, ac, rc)
         }
         OpCode::CALLDATASIZE => {
@@ -804,7 +852,7 @@ mod tests {
 
     #[test]
     fn apply_op_add() {
-        let (i, ms) = init_context();
+        let (i, mut ms) = init_context();
         let cases = vec![
             (vec![U256::zero(), U256::zero()], U256::zero()),
             (vec![U256::one(), U256::zero()], U256::one()),
@@ -813,7 +861,7 @@ mod tests {
             //(vec![U256::from(-1), U256::from(-3)], U256::from(-4)),
         ];
         for (given, expected) in cases {
-            let (got, _, _) = apply_op(given, &i, &ms, OpCode::ADD);
+            let (got, _, _) = apply_op(given, &i, &mut ms, OpCode::ADD);
             assert_eq!(got.len(), 1);
             assert_eq!(got[0], expected);
         }
@@ -821,7 +869,7 @@ mod tests {
 
     #[test]
     fn apply_op_counters() {
-        let (i, ms) = init_context();
+        let (i, mut ms) = init_context();
         let stack = vec![U256::one(), U256::one()];
         let cases = vec![
             (OpCode::STOP, U256::zero(), U256::zero()),
@@ -829,7 +877,7 @@ mod tests {
             (OpCode::MUL, U256::from(1), U256::from(2)),
         ];
         for (code, expected_ac, expected_rc) in cases {
-            let (_, ac, rc) = apply_op(stack.clone(), &i, &ms, code);
+            let (_, ac, rc) = apply_op(stack.clone(), &i, &mut ms, code);
             assert_eq!(ac, expected_ac);
             assert_eq!(rc, expected_rc);
         }
@@ -894,39 +942,39 @@ mod tests {
 
     #[test]
     fn apply_op_byte() {
-        let (i, ms) = init_context();
+        let (i, mut ms) = init_context();
 
         //  some data that we want to pick at 255~248
         let data = U256::from(0xA1) << (8 * 31);
         let stack = vec![data, U256::from(0)];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::BYTE);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::BYTE);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::from(0xA1));
 
         //  some data that we want to pick at 7~0
         let data = U256::from(0xA1);
         let stack = vec![data, U256::from(31)];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::BYTE);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::BYTE);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::from(0xA1));
 
         //  some data that we want to pick at 15~8
         let data = U256::from(0xA1) << 8;
         let stack = vec![data, U256::from(30)];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::BYTE);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::BYTE);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::from(0xA1));
     }
 
     #[test]
     fn apply_op_sar() {
-        let (i, ms) = init_context();
+        let (i, mut ms) = init_context();
 
         // positive A1
         let data = U256::from(0xA1) << 8;
         let stack = vec![U256::from(8), data];
 
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::SAR);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::SAR);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::from(0xA1));
 
@@ -934,55 +982,55 @@ mod tests {
         let data = U256::from(0xA1) << 8 | U256::MAX;
         let stack = vec![U256::from(8), data];
 
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::SAR);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::SAR);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::from(0xA1) | U256::MAX);
     }
 
     #[test]
     fn apply_op_mod() {
-        let (i, ms) = init_context();
+        let (i, mut ms) = init_context();
 
         let stack = vec![U256::from(3), U256::from(5)];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::MOD);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::MOD);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::from(2));
     }
 
     #[test]
     fn apply_op_smod() {
-        let (i, ms) = init_context();
+        let (i, mut ms) = init_context();
 
         let stack = vec![U256::from(7), U256::from(I256::from(-11))];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::SMOD);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::SMOD);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::from(3));
     }
 
     #[test]
     fn apply_op_sdiv() {
-        let (i, ms) = init_context();
+        let (i, mut ms) = init_context();
 
         let stack = vec![U256::from(4), U256::from(I256::from(-12))];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::SDIV);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::SDIV);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::from(I256::from(-3)));
     }
 
     #[test]
     fn apply_op_signextend() {
-        let (i, ms) = init_context();
+        let (i, mut ms) = init_context();
 
         // how to reprsent -1 in 1 byte? 1111 1111
         let stack = vec![U256::from(0), U256::from(0xFF)];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::SIGNEXTEND);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::SIGNEXTEND);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::from(I256::from(-1)));
 
         // -1 in 2 byte: 1111 1111 1111 1111
         // it's 2 bytes
         let stack = vec![U256::from(1), U256::from(0xFFFF)];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::SIGNEXTEND);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::SIGNEXTEND);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::from(I256::from(-1)));
     }
@@ -1228,4 +1276,109 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], basefee);
     }
+=======
+    fn apply_op_mload() {
+        let (i, mut ms) = init_context();
+
+        let stack = vec![U256::from(0xFF)];
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::MLOAD);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0], U256::zero());
+    }
+
+    #[test]
+    fn apply_op_mstore() {
+        let (i, mut ms) = init_context();
+
+        // shouldn't it be u[0] = offset and u[1] = data?
+        // where translates to:
+        // PUSH1 0xAA
+        // PUSH1 0xFF
+        // MSTORE
+        //let stack = vec![U256::from(0xAA), U256::from(0xFF)];
+
+        // MSTORE currently does:
+        // [b, a]
+        // mem[a] = b
+        // this translates to
+        // PUSH1 0xFF
+        // PUSH1 0xAA
+        // MSTORE
+        let stack = vec![U256::from(0xFF), U256::from(0xAA)];
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::MSTORE);
+        assert_eq!(got.len(), 0);
+
+        let stack = vec![U256::from(0xAA)];
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::MLOAD);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0], U256::from(0xFF));
+    }
+
+    #[test]
+    fn apply_op_mstore8() {
+        let (i, mut ms) = init_context();
+
+        let stack = vec![U256::from(0xAA)];
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::MLOAD);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0], U256::zero());
+
+        let stack = vec![U256::from(0xFF), U256::from(0xAA)];
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::MSTORE8);
+        assert_eq!(got.len(), 0);
+
+        let stack = vec![U256::from(0xAA - 32)];
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::MLOAD);
+        assert_eq!(got.len(), 1);
+        assert_eq!(
+            got[0],
+            U256::zero(),
+            "32-byte starting from {}(0xAA-32) is not zero",
+            0xAA - 32
+        );
+
+        let stack = vec![U256::from(0xAA + 32)];
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::MLOAD);
+        assert_eq!(got.len(), 1);
+        assert_eq!(
+            got[0],
+            U256::zero(),
+            "32-byte starting from {}(0xAA+32) is not zero",
+            0xAA + 32
+        );
+
+        let stack = vec![U256::from(0xAA - 1)];
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::MLOAD);
+        assert_eq!(got.len(), 1);
+        assert_eq!(
+            got[0],
+            U256::zero(),
+            "32-byte starting from {}(0xAA-1) is not zero",
+            0xAA - 1
+        );
+
+        let stack = vec![U256::from(0x9A)];
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::MLOAD);
+        assert_eq!(got.len(), 1);
+        assert_eq!(
+            got[0],
+            U256::zero(),
+            "32-byte starting from {}(0x9A) is not zero",
+            0x9A
+        );
+
+        let stack = vec![U256::from(0xAA)];
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::MLOAD);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0], U256::from(0xFF) << 24, "memory is empty, why!");
+    }
+
+    //#[test]
+    //fn apply_op_keccak256() {
+    //    let (i, ms) = init_context();
+    //    let stack = vec![U256::from(0), U256::from(0xFF)];
+    //    let (got, _, _) = apply_op(stack, &i, &ms, OpCode::KECCAK256);
+    //    assert_eq!(got.len(), 1);
+    //    assert_eq!(got[0], U256::from(I256::from(-1)));
+    //}
 }
