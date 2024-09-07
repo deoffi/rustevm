@@ -54,7 +54,31 @@ pub type O = Vec<u8>;
 pub struct SubState {}
 
 #[derive(Debug, Clone)]
-pub struct BlockHeader {}
+pub struct BlockHeader {
+    pub coinbase: U256,
+    pub timestamp: U256,
+    pub number: U256,
+    pub prevrandao: U256,
+    pub gaslimit: U256,
+    pub chainid: U256,
+    pub selfbalance: U256,
+    pub basefee: U256,
+}
+
+impl Default for BlockHeader {
+    fn default() -> Self {
+        Self {
+            coinbase: U256::from(0),
+            timestamp: U256::from(0),
+            number: U256::from(0),
+            prevrandao: U256::from(0),
+            gaslimit: U256::from(0),
+            chainid: U256::from(0),
+            selfbalance: U256::from(0),
+            basefee: U256::from(0),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct I {
@@ -65,6 +89,7 @@ pub struct I {
     // effective gas price
     pub p: U256,
     // byte array of input data. aka "tx data"
+    // XXX: is there a maximum size of this? i know the minimum is 32 bytes.
     pub d: Vec<u8>,
     // address of account that caused this execution. aka msg.sender
     pub s: U256,
@@ -91,7 +116,7 @@ impl Default for I {
             v: U256::zero(),
             b: vec![],
             e: U256::zero(),
-            h: BlockHeader {},
+            h: BlockHeader::default(),
             w: false,
         }
     }
@@ -103,11 +128,11 @@ pub struct MachineState {
     pub gas_avail: U256,
     // program counter
     pub pc: U256,
-    // series of zeroes in size 2^256
+    // series of zeroes in size 2^256. memory
     pub m: U256,
     // stack contents
     pub stack: Vec<U256>,
-    // reutrn data buffer
+    // return data buffer
     pub returndata: String,
 }
 
