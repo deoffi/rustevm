@@ -640,6 +640,10 @@ pub fn apply_op(
             ret = ret >> 8;
 
             stack.push(ret);
+
+            let rc = U256::from(1);
+            let ac = U256::from(1);
+            (stack, ac, rc)
         }
         OpCode::MLOAD => {
             // in yellowpaper, u'[0] = um[u[0] ... u[0]+31]
@@ -1037,14 +1041,14 @@ mod tests {
 
     #[test]
     fn apply_op_keccak256() {
-        let (i, ms) = init_context();
+        let (i, mut ms) = init_context();
 
         // XXX: load 32-byte value to memory at address 0
         //      we assume this is done.
 
         // hash 32 bytes from address 0
         let stack = vec![U256::zero(), U256::from(32)];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::KECCAK256);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::KECCAK256);
         assert_eq!(got.len(), 1);
 
         let mut data = [1; 32];
@@ -1061,55 +1065,55 @@ mod tests {
 
     #[test]
     fn apply_op_address() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         let addr = U256::from(0xffff);
         i.a = addr;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::ADDRESS);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::ADDRESS);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], addr);
     }
 
     #[test]
     fn apply_op_origin() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         let addr = U256::from(0xffff);
         i.o = addr;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::ORIGIN);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::ORIGIN);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], addr);
     }
 
     #[test]
     fn apply_op_caller() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         let addr = U256::from(0xffff);
         i.s = addr;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::CALLER);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::CALLER);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], addr);
     }
 
     #[test]
     fn apply_op_callvalue() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         let value = U256::from(0x01);
         i.v = value;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::CALLVALUE);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::CALLVALUE);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], value);
     }
 
     #[test]
     fn apply_op_calldataload() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         // 256 bits where the left-most byte is set 1.
         let mut value = U256::from(0xffff) << 248;
         // convert it into vector of u8. big-endian
@@ -1124,14 +1128,14 @@ mod tests {
         i.d = data;
 
         let stack = vec![U256::from(0x00)];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::CALLDATALOAD);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::CALLDATALOAD);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], value);
     }
 
     #[test]
     fn apply_op_calldatasize() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         // 256 bits where the left-most byte is set 1.
         let mut value = U256::from(0xffff) << 248;
         // convert it into vector of u8. big-endian
@@ -1146,14 +1150,14 @@ mod tests {
         i.d = data;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::CALLDATASIZE);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::CALLDATASIZE);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::from(128));
     }
 
     #[test]
     fn apply_op_codesize() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         // 256 bits where the left-most byte is set 1.
         let mut value = U256::from(0xffff) << 248;
         // convert it into vector of u8. big-endian
@@ -1168,115 +1172,116 @@ mod tests {
         i.b = data;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::CODESIZE);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::CODESIZE);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::from(128));
     }
 
     #[test]
     fn apply_op_gasprice() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         // 256 bits where the left-most byte is set 1.
         let gas_price = U256::from(0xAA);
         i.p = gas_price;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::GASPRICE);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::GASPRICE);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], gas_price);
     }
 
     #[test]
     fn apply_op_coinbase() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         // 256 bits where the left-most byte is set 1.
         let coinbase = U256::from(0xAA);
         i.h.coinbase = coinbase;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::COINBASE);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::COINBASE);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], coinbase);
     }
 
     #[test]
     fn apply_op_timestamp() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         // 256 bits where the left-most byte is set 1.
         let timestamp = U256::from(0xAA);
         i.h.timestamp = timestamp;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::TIMESTAMP);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::TIMESTAMP);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], timestamp);
     }
 
     #[test]
     fn apply_op_number() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         // 256 bits where the left-most byte is set 1.
         let number = U256::from(0xAA);
         i.h.number = number;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::NUMBER);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::NUMBER);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], number);
     }
 
     #[test]
     fn apply_op_prevrandao() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         // 256 bits where the left-most byte is set 1.
         let prevrandao = U256::from(0xAA);
         i.h.prevrandao = prevrandao;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::PREVRANDAO);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::PREVRANDAO);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], prevrandao);
     }
 
     #[test]
     fn apply_op_gaslimit() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         // 256 bits where the left-most byte is set 1.
         let gaslimit = U256::from(0xAA);
         i.h.gaslimit = gaslimit;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::GASLIMIT);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::GASLIMIT);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], gaslimit);
     }
 
     #[test]
     fn apply_op_selfbalance() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         // 256 bits where the left-most byte is set 1.
         let selfbalance = U256::from(0xAA);
         i.h.selfbalance = selfbalance;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::SELFBALANCE);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::SELFBALANCE);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], selfbalance);
     }
 
     #[test]
     fn apply_op_basefee() {
-        let (mut i, ms) = init_context();
+        let (mut i, mut ms) = init_context();
         // 256 bits where the left-most byte is set 1.
         let basefee = U256::from(0xAA);
         i.h.basefee = basefee;
 
         let stack = vec![];
-        let (got, _, _) = apply_op(stack, &i, &ms, OpCode::BASEFEE);
+        let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::BASEFEE);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], basefee);
     }
-=======
+
+    #[test]
     fn apply_op_mload() {
         let (i, mut ms) = init_context();
 
@@ -1377,7 +1382,7 @@ mod tests {
     //fn apply_op_keccak256() {
     //    let (i, ms) = init_context();
     //    let stack = vec![U256::from(0), U256::from(0xFF)];
-    //    let (got, _, _) = apply_op(stack, &i, &ms, OpCode::KECCAK256);
+    //    let (got, _, _) = apply_op(stack, &i, &mut ms, OpCode::KECCAK256);
     //    assert_eq!(got.len(), 1);
     //    assert_eq!(got[0], U256::from(I256::from(-1)));
     //}
