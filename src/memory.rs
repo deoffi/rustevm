@@ -15,6 +15,9 @@ impl Default for Memory {
 }
 
 impl Memory {
+    pub fn active_size(&self) -> usize {
+        self.data.len()
+    }
     pub fn load(&self, offset: usize, size: usize) -> Vec<u8> {
         let mut ret = vec![0; size];
 

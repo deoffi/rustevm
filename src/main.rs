@@ -1,10 +1,11 @@
-use crate::context::{MachineState, SystemState, A, G, I, O};
+use crate::context::{BlockHeaders, MachineState, SystemState, A, G, I, O};
 use crate::opcode::{apply_op, OpCode};
 use primitive_types::U256;
 use std::collections::HashSet;
 use std::fmt;
 
 mod context;
+mod conversion;
 mod memory;
 mod opcode;
 mod signed;
@@ -56,10 +57,12 @@ fn f(stack: Vec<U256>, s: SystemState, g: G, a: A, i: I) -> (SystemState, G, A, 
 }
 
 // aka X(s, ms, a, i)
+//      for our case, we need another env var `headers`
 fn iterate(
-    s: &SystemState,
+    headers: &BlockHeaders,
+    s: &mut SystemState,
     ms: &MachineState,
-    a: &A,
+    a: &mut A,
     i: &I,
 ) -> (SystemState, MachineState, A, I, O) {
     if is_exceptional_halt(ms, s, a, i) {
@@ -71,7 +74,7 @@ fn iterate(
         // return (empty set, ms', a, i, o)
     }
 
-    let (s_p, ms_p, a_p, i_p) = execute(s, ms.clone(), a, i);
+    let (mut s_p, ms_p, mut a_p, i_p) = execute(&headers, s, ms.clone(), a, i);
     match normal_halt(ms, i) {
         Ok(seq) => return (s_p, ms_p, a_p, i_p, seq),
         Err(err) => {
@@ -80,7 +83,7 @@ fn iterate(
     }
 
     // next iteration
-    return iterate(&s_p, &ms_p, &a_p, &i_p);
+    return iterate(&headers, &mut s_p, &ms_p, &mut a_p, &i_p);
 }
 
 // the current operation to be executed: aka "w"
@@ -224,15 +227,17 @@ fn normal_halt(ms: &MachineState, i: &I) -> Result<Vec<u8>, HaltError> {
 // however, instruction do alter one or several components of this
 // defines a single cycle of the state machine. aka O(s, ms, a, i)
 fn execute(
-    s: &SystemState,
+    headers: &BlockHeaders,
+    mut s: &mut SystemState,
     mut ms: MachineState,
-    a: &A,
+    mut a: &mut A,
     i: &I,
 ) -> (SystemState, MachineState, A, I) {
     let op = next_op(&ms, i);
 
     // update stack
-    let (result_stack, ac, rc) = apply_op(ms.stack.clone(), i, &mut ms, op);
+    let (result_stack, ac, rc) =
+        apply_op(&headers, &mut s, ms.stack.clone(), i, &mut ms, &mut a, op);
     let delta = ac - rc;
     let prev_size = U256::from_dec_str(&format!("{}", ms.stack.len())).unwrap();
     let new_size = U256::from_dec_str(&format!("{}", result_stack.len())).unwrap();
