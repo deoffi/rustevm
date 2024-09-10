@@ -4,6 +4,7 @@ use crate::context::{
 };
 use crate::conversion::{h160_to_u256, u256_to_h160};
 use crate::signed::I256;
+use crate::system::create_address;
 use keccak_hash::{keccak, keccak256};
 use primitive_types::{H160, H256, U256};
 use std::ops::{Div, Neg, Rem};
@@ -1761,6 +1762,130 @@ pub fn apply_op(
             (stack, ac, rc)
         }
 
+        // systems
+        OpCode::CREATE => {
+            // create a new account
+            // [c, b, a]
+            // [value, offset, size]
+            let a = stack.pop().unwrap();
+            let b = stack.pop().unwrap();
+            let c = stack.pop().unwrap();
+
+            let size = a.low_u32() as usize;
+            let offset = b.low_u32() as usize;
+            let value = c;
+
+            // here, we have three state changes:
+            // - system state: caller's nonce is increased
+            // - machine state: gas available(after some use)
+            // - machine state: return value(new address)
+            // XXX: implement the first two as well
+            //      incrementing caller's nonce would requries tx ipmlementation,
+            //      which i believe will help me answer the stackoverflow qeustion
+
+            // return value is a new address.
+            // new address is `0` if the following contraints are not met:
+
+            // 1. z=0 i.e. the contract creation process failed
+            // 2. initcode size > 49152 bytes
+            // 3. Ie = 1024; the maximum call depth has reached
+            // 4. value > balance of Ia(account that is executing this CREATE)
+
+            // check for #2 and #3
+            if i.e < U256::from(1024) && size <= 49152 {
+                // caller's account
+                let caller = s.accounts.get(&i.a).unwrap();
+                // check for #4
+                if caller.balance < value {
+                    stack.push(U256::zero());
+                } else {
+                    // return the newly created address
+                    // XXX: where do we get this salt?
+                    let salt = U256::zero();
+                    // load data from mem
+                    let initcode: Vec<u8> = ms.m.load(offset, size);
+                    let new_addr = create_address(i.a, caller.nonce, salt, initcode);
+                    // check for #1: `new_addr` will be zero in case of z=0
+                    stack.push(U256::from(new_addr.as_bytes()));
+                }
+            } else {
+                stack.push(U256::zero());
+            }
+
+            let rc = U256::from(3);
+            let ac = U256::from(1);
+            (stack, ac, rc)
+        }
+        OpCode::CALL => {
+            // message-call into an account
+            // [g, f, e, d, c, b, a]
+            // [gas, to, value, in offset, in size, out offset, out size]
+            let a = stack.pop().unwrap();
+            let b = stack.pop().unwrap();
+            let c = stack.pop().unwrap();
+            let d = stack.pop().unwrap();
+            let e = stack.pop().unwrap();
+            let f = stack.pop().unwrap();
+            let g = stack.pop().unwrap();
+
+            let out_size = a.low_u32() as usize;
+            let out_offset = b.low_u32() as usize;
+            let in_size = c.low_u32() as usize;
+            let in_offset = d.low_u32() as usize;
+            let value = e;
+            let to: H160 = u256_to_h160(f);
+            let gas = g;
+
+            let output = 0;
+
+            // take smaller
+            let mut n = out_size;
+            if n > output.len() {
+                n = output.len();
+            }
+
+            // here, we have three state changes:
+            // - system state: caller's nonce is increased
+            // - machine state: gas available(after some use)
+            // - machine state: return value(new address)
+            // XXX: implement the first two as well
+            //      incrementing caller's nonce would requries tx ipmlementation,
+            //      which i believe will help me answer the stackoverflow qeustion
+
+            // return value is a new address.
+            // new address is `0` if the following contraints are not met:
+
+            // 1. z=0 i.e. the contract creation process failed
+            // 2. initcode size > 49152 bytes
+            // 3. Ie = 1024; the maximum call depth has reached
+            // 4. value > balance of Ia(account that is executing this CREATE)
+
+            // check for #2 and #3
+            if i.e < U256::from(1024) && size <= 49152 {
+                // caller's account
+                let caller = s.accounts.get(&i.a).unwrap();
+                // check for #4
+                if caller.balance < value {
+                    stack.push(U256::zero());
+                } else {
+                    // return the newly created address
+                    // XXX: where do we get this salt?
+                    let salt = U256::zero();
+                    // load data from mem
+                    let initcode: Vec<u8> = ms.m.load(offset, size);
+                    let new_addr = create_address(i.a, caller.nonce, salt, initcode);
+                    // check for #1: `new_addr` will be zero in case of z=0
+                    stack.push(U256::from(new_addr.as_bytes()));
+                }
+            } else {
+                stack.push(U256::zero());
+            }
+
+            let rc = U256::from(3);
+            let ac = U256::from(1);
+            (stack, ac, rc)
+        }
+
         _ => {
             panic!("NOT implemented yet");
         }
@@ -2941,5 +3066,37 @@ mod tests {
 
         // make sure a substate is appeneded
         assert_eq!(a.accrued.len(), 2);
+    }
+
+    #[test]
+    fn apply_op_create() {
+        let (mut i, mut ms, mut s, mut a, headers) = init_context();
+
+        // 1 account
+        let addr = H160::random();
+        let mut account = Account::default();
+        account.balance = U256::from(100);
+        s.accounts.insert(addr, account);
+        assert_eq!(s.accounts.len(), 1);
+        // set this account as the caller
+        i.a = addr;
+
+        // CREATE - succeed: normal
+        let stack = vec![U256::from(5), U256::from(0xffaa), U256::from(15000)];
+        let (got, _, _) = apply_op(&headers, &mut s, stack, &i, &mut ms, &mut a, OpCode::CREATE);
+        assert_eq!(got.len(), 1);
+        assert!(got[0] > U256::zero());
+
+        // CREATE - failed: too much value
+        let stack = vec![U256::from(500), U256::from(0xffaa), U256::from(15000)];
+        let (got, _, _) = apply_op(&headers, &mut s, stack, &i, &mut ms, &mut a, OpCode::CREATE);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0], U256::zero());
+
+        // CREATE - failed: too long initcode
+        let stack = vec![U256::from(5), U256::from(0), U256::from(50000)];
+        let (got, _, _) = apply_op(&headers, &mut s, stack, &i, &mut ms, &mut a, OpCode::CREATE);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0], U256::zero());
     }
 }

@@ -9,6 +9,7 @@ mod conversion;
 mod memory;
 mod opcode;
 mod signed;
+mod system;
 
 #[derive(Debug, Clone)]
 struct HaltError;
