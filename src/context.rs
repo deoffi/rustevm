@@ -171,6 +171,7 @@ impl BlockHeaders {
     }
 }
 
+// used for message-call
 #[derive(Debug, Clone)]
 pub struct I {
     // address of account that owns the code we are executing

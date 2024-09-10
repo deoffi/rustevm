@@ -1836,13 +1836,12 @@ pub fn apply_op(
             let to: H160 = u256_to_h160(f);
             let gas = g;
 
-            let output = 0;
-
+            // let output = 0;
             // take smaller
-            let mut n = out_size;
-            if n > output.len() {
-                n = output.len();
-            }
+            // let mut n = out_size;
+            // if n > output.len() {
+            //     n = output.len();
+            // }
 
             // here, we have three state changes:
             // - system state: caller's nonce is increased
@@ -1861,7 +1860,7 @@ pub fn apply_op(
             // 4. value > balance of Ia(account that is executing this CREATE)
 
             // check for #2 and #3
-            if i.e < U256::from(1024) && size <= 49152 {
+            if i.e < U256::from(1024) && in_size <= 49152 {
                 // caller's account
                 let caller = s.accounts.get(&i.a).unwrap();
                 // check for #4
@@ -1872,7 +1871,7 @@ pub fn apply_op(
                     // XXX: where do we get this salt?
                     let salt = U256::zero();
                     // load data from mem
-                    let initcode: Vec<u8> = ms.m.load(offset, size);
+                    let initcode: Vec<u8> = ms.m.load(in_offset, in_size);
                     let new_addr = create_address(i.a, caller.nonce, salt, initcode);
                     // check for #1: `new_addr` will be zero in case of z=0
                     stack.push(U256::from(new_addr.as_bytes()));
@@ -3098,5 +3097,24 @@ mod tests {
         let (got, _, _) = apply_op(&headers, &mut s, stack, &i, &mut ms, &mut a, OpCode::CREATE);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], U256::zero());
+    }
+    #[test]
+    fn apply_op_call() {
+        let (mut i, mut ms, mut s, mut a, headers) = init_context();
+
+        // 1 account
+        let addr = H160::random();
+        let mut account = Account::default();
+        account.balance = U256::from(100);
+        s.accounts.insert(addr, account);
+        assert_eq!(s.accounts.len(), 1);
+        // set this account as the caller
+        i.a = addr;
+
+        // CREATE - succeed: normal
+        let stack = vec![U256::from(5), U256::from(0xffaa), U256::from(15000)];
+        let (got, _, _) = apply_op(&headers, &mut s, stack, &i, &mut ms, &mut a, OpCode::CALL);
+        assert_eq!(got.len(), 1);
+        assert!(got[0] > U256::zero());
     }
 }
