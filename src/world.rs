@@ -1,12 +1,6 @@
-use crate::memory::Memory;
 use primitive_types::{H160, H256, U256};
 use std::collections::HashMap;
 use std::collections::VecDeque;
-
-pub struct Context {
-    address: String,
-    balance: U256,
-}
 
 #[derive(Debug, Clone)]
 pub struct SystemState {
@@ -44,66 +38,6 @@ impl Default for Account {
             code: vec![],
         }
     }
-}
-
-#[derive(Debug)]
-pub struct G {
-    remaining: U256,
-}
-
-impl Default for G {
-    fn default() -> Self {
-        Self {
-            remaining: U256::from(25000),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct A {
-    pub accrued: Vec<SubState>,
-}
-
-impl Default for A {
-    fn default() -> Self {
-        Self { accrued: vec![] }
-    }
-}
-
-pub type O = Vec<u8>;
-//#[derive(Debug)]
-//struct O {
-//    value: String,
-//}
-
-// XXX: related to Ak in storage load and store. not sure what that is
-#[derive(Debug)]
-pub struct SubState {
-    // log series
-    pub l: Vec<LogEntry>,
-}
-
-impl Default for SubState {
-    fn default() -> Self {
-        Self { l: vec![] }
-    }
-}
-
-#[derive(Debug)]
-pub struct LogEntry {
-    pub address: H160,
-    pub topics: TopicSeries,
-    pub content: Vec<u8>,
-}
-
-// the topic series could be a tuple from size 0 to 4
-#[derive(Debug)]
-pub enum TopicSeries {
-    Empty(),
-    One(U256),
-    Two(U256, U256),
-    Three(U256, U256, U256),
-    Four(U256, U256, U256, U256),
 }
 
 #[derive(Debug, Clone)]
@@ -173,18 +107,18 @@ impl BlockHeaders {
 
 // used for message-call
 #[derive(Debug, Clone)]
-pub struct I {
+pub struct ExecutionEnvironment {
     // address of account that owns the code we are executing. aka receiver?
     pub a: H160,
     // origin of this tx
-    pub o: U256,
+    pub o: H160,
     // effective gas price
     pub p: U256,
     // byte array of input data. aka "tx data"
     // XXX: is there a maximum size of this? i know the minimum is 32 bytes.
     pub d: Vec<u8>,
     // address of account that caused this execution. aka msg.sender
-    pub s: U256,
+    pub s: H160,
     // value in Wei
     pub v: U256,
     // byte array that is machine code to be executed
@@ -197,46 +131,19 @@ pub struct I {
     pub w: bool,
 }
 
-impl Default for I {
+impl Default for ExecutionEnvironment {
     fn default() -> Self {
         Self {
-            a: H160::random(),
-            o: U256::zero(),
+            a: H160::zero(),
+            o: H160::zero(),
             p: U256::zero(),
             d: vec![],
-            s: U256::zero(),
+            s: H160::zero(),
             v: U256::zero(),
             b: vec![],
             e: U256::zero(),
             h: BlockHeader::default(),
-            w: false,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct MachineState {
-    // gas available
-    pub gas_avail: U256,
-    // program counter
-    pub pc: U256,
-    // series of zeroes in size 2^256
-    // pub m: U256,
-    pub m: Memory,
-    // stack contents
-    pub stack: Vec<U256>,
-    // return data buffer
-    pub returndata: String,
-}
-
-impl Default for MachineState {
-    fn default() -> Self {
-        Self {
-            gas_avail: U256::zero(),
-            pc: U256::zero(),
-            m: Memory::default(),
-            stack: vec![],
-            returndata: String::default(),
+            w: true,
         }
     }
 }
