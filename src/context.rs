@@ -174,7 +174,7 @@ impl BlockHeaders {
 // used for message-call
 #[derive(Debug, Clone)]
 pub struct I {
-    // address of account that owns the code we are executing
+    // address of account that owns the code we are executing. aka receiver?
     pub a: H160,
     // origin of this tx
     pub o: U256,
